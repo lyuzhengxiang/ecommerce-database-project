@@ -673,6 +673,69 @@ ORDER  BY days_since_last_purchase IS NULL, days_since_last_purchase ASC;
 
 ## 3. Data Generation & Performance Evaluation
 
+### Reproduction Steps
+
+All results in this report can be fully reproduced. The repository includes automated scripts for data generation, database setup, and query execution.
+
+**Prerequisites:**
+- Docker Desktop (running)
+- Python 3.8+
+
+**Option A: One-command setup + run**
+```bash
+# 1. Generate data, start databases, import everything
+bash scripts/setup_and_import.sh
+
+# 2. Run all 13 queries with performance measurement
+python3 scripts/run_all_queries.py
+```
+
+**Option B: Step-by-step manual reproduction**
+```bash
+# 1. Create virtual environment and generate synthetic data
+python3 -m venv .venv && source .venv/bin/activate
+pip install faker
+python3 scripts/generate_data.py
+
+# 2. Start MySQL and MongoDB via Docker
+docker run -d --name ecommerce_mysql \
+    -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=ecommerce \
+    -p 3307:3306 mysql:8.0
+docker run -d --name ecommerce_mongo -p 27017:27017 mongo:7
+
+# 3. Wait for MySQL to be ready (~15 seconds), then create schema
+docker cp sql/schema.sql ecommerce_mysql:/tmp/schema.sql
+docker exec ecommerce_mysql mysql -uroot -proot123 ecommerce \
+    -e "source /tmp/schema.sql"
+
+# 4. Import data into MySQL
+docker cp generated_data/ ecommerce_mysql:/tmp/data/
+docker cp scripts/import_mysql.sql ecommerce_mysql:/tmp/import.sql
+docker exec ecommerce_mysql mysql -uroot -proot123 --local-infile=1 \
+    ecommerce -e "source /tmp/import.sql"
+
+# 5. Import data into MongoDB
+docker cp generated_data/product_catalog.json ecommerce_mongo:/tmp/
+docker cp generated_data/user_events.json ecommerce_mongo:/tmp/
+docker exec ecommerce_mongo mongoimport --db ecommerce \
+    --collection product_catalog --file /tmp/product_catalog.json --jsonArray
+docker exec ecommerce_mongo mongoimport --db ecommerce \
+    --collection user_events --file /tmp/user_events.json --jsonArray
+
+# 6. Run all 13 queries
+python3 scripts/run_all_queries.py
+```
+
+**Clean up:**
+```bash
+docker stop ecommerce_mysql ecommerce_mongo
+docker rm ecommerce_mysql ecommerce_mongo
+```
+
+The query script (`scripts/run_all_queries.py`) verifies that both containers are running, executes all 13 queries against the live databases, and prints a performance summary with pass/fail status against the 2-second threshold.
+
+---
+
 ### Data Generation
 
 We created a Python script (`scripts/generate_data.py`) using the Faker library that generates:
