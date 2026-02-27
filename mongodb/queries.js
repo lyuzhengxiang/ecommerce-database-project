@@ -1,11 +1,5 @@
-// ============================================================
-// Fetching Data — MongoDB Queries
-// ============================================================
-
-// ---------------------------------------------------------------
-// Q1 (supplement): Fashion products with flexible attributes
-//   After fetching product_ids from SQL, retrieve their attributes:
-// ---------------------------------------------------------------
+//MongoDB 
+//Q1 
 db.product_catalog.find(
   { category: "fashion" },
   {
@@ -17,17 +11,13 @@ db.product_catalog.find(
     _id: 0
   }
 );
-
-// ---------------------------------------------------------------
-// Q2: Last 5 products viewed by Sarah (past 6 months)
-// ---------------------------------------------------------------
+//Q2
 var sixMonthsAgo = new Date();
 sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
 db.user_events.aggregate([
   {
     $match: {
-      user_id: 1,                     // Sarah's user_id
+      user_id: 1,                   
       event_type: "page_view",
       timestamp: { $gte: sixMonthsAgo }
     }
@@ -52,10 +42,7 @@ db.user_events.aggregate([
   }
 ]);
 
-// ---------------------------------------------------------------
-// Q4 (supplement): Fashion products in blue OR large size
-//   Filter MongoDB product_catalog for matching variants
-// ---------------------------------------------------------------
+//Q4 
 db.product_catalog.find(
   {
     category: "fashion",
@@ -72,10 +59,7 @@ db.product_catalog.find(
     _id: 0
   }
 );
-
-// ---------------------------------------------------------------
-// Q5: Product page views ordered by popularity
-// ---------------------------------------------------------------
+//Q5
 db.user_events.aggregate([
   { $match: { event_type: "page_view" } },
   {
@@ -96,9 +80,7 @@ db.user_events.aggregate([
   { $sort: { view_count: -1 } }
 ]);
 
-// ---------------------------------------------------------------
-// Q6: Recent search terms — frequency & time-of-day category
-// ---------------------------------------------------------------
+//Q6
 db.user_events.aggregate([
   {
     $match: {
