@@ -1,4 +1,4 @@
-// as mentioned in the report, we use MongoDB in the following three scenarios
+// as mentioned in the report, we use MongoDB in the following two scenarios
 
 // product attributes
 db.createCollection("product_catalog", {
@@ -29,8 +29,3 @@ db.user_events.createIndex({ user_id: 1, timestamp: -1 });
 db.user_events.createIndex({ event_type: 1 });
 db.user_events.createIndex({ "data.product_id": 1 });
 db.user_events.createIndex({ timestamp: 1 }, { expireAfterSeconds: 365 * 24 * 3600 });
-
-// session management 
-db.createCollection("sessions");
-db.sessions.createIndex({ user_id: 1 }, { unique: true });
-db.sessions.createIndex({ last_active: 1 }, { expireAfterSeconds: 30 * 24 * 3600 });

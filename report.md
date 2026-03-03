@@ -34,7 +34,7 @@ Based on the e-commerce narrative, we map each functionality to the most appropr
 | 2 | **Product catalog (core)** | MySQL | Relational | Products have a core set of shared fields (name, price, stock) that benefit from relational integrity and JOINs with categories and orders. |
 | 3 | **Product attributes (category-specific)** | MongoDB | Document | Headphones, dresses, and vases each have entirely different attribute sets. A document store allows schema-free, nested attributes without altering table structures. |
 | 4 | **Shopping cart (active session)** | Redis | In-Memory | Carts are accessed at high frequency with low-latency requirements. Redis key-value storage enables sub-millisecond reads and automatic expiration for abandoned carts. |
-| 5 | **Session management (cross-device)** | Redis + MongoDB | Hybrid | Redis holds the active session for instant lookup on login; MongoDB persists session history and device trail for durability beyond TTL. |
+| 5 | **Session management (cross-device)** | Redis + MySQL | Hybrid | Redis holds active session state for instant lookup on login; MySQL `sessions` persists durable session history and recovery metadata. |
 | 6 | **Orders & payments** | MySQL | Relational | Financial transactions demand ACID compliance. Orders involve multi-table writes (order → order_items → payment) that must succeed or fail atomically. |
 | 7 | **Returns & refunds** | MySQL | Relational | Returns reference orders and products through foreign keys. Refund amounts and restocking fees require consistent computation. |
 | 8 | **Real-time inventory** | Redis + MySQL | Hybrid | Redis maintains a live counter (DECR/INCR) for the real-time stock display. MySQL is the source of truth, periodically synchronized. |
@@ -190,7 +190,7 @@ MongoDB lets us store deeply nested and varying attributes natively. Adding a ne
 
 ### 1.4 Session Management Across Devices
 
-Sarah starts shopping on her tablet, abandons the session, then returns hours later on her laptop with her cart intact. Our design handles this through a **Redis + MongoDB hybrid**:
+Sarah starts shopping on her tablet, abandons the session, then returns hours later on her laptop with her cart intact. Our design handles this through a **Redis + MySQL hybrid**:
 
 **Redis (active session layer):**
 ```
@@ -210,9 +210,9 @@ TTL:    24 hours (sliding)
 2. She adds headphones → Redis cart updated in-place (sub-millisecond).
 3. She leaves (no logout) → session persists in Redis with 24h TTL.
 4. She logs in on laptop → backend reads `session:user:1` from Redis, restores full cart state. Device field updated to "laptop."
-5. On periodic intervals (every 5 minutes) or on significant actions (add to cart, checkout), the session snapshot is persisted to MongoDB `sessions` collection for durability.
+5. On periodic intervals (every 5 minutes) or on significant actions (add to cart, checkout), the session snapshot is persisted to MySQL `sessions` table for durability and cross-device restore tracing.
 
-**Why not just a MySQL sessions table?** Sessions are ephemeral, high-frequency read/write data. A MySQL table would add unnecessary disk I/O and locking overhead for data that changes every few seconds.
+**Why Redis + MySQL instead of MySQL only?** Sessions are ephemeral, high-frequency read/write data. Redis serves low-latency active lookups, while MySQL keeps durable history and recovery data.
 
 ---
 
@@ -279,7 +279,7 @@ We also denormalize `total_amount`, `tax_amount`, and `shipping_fee` in the `ord
 | Co-purchase graph update | MySQL → Neo4j | Batch (hourly) | Scheduled job reads new orders, updates FREQUENTLY_BOUGHT_WITH edges |
 
 **Failure Fallbacks:**
-- **Redis down:** Fall back to MongoDB sessions collection or MySQL carts table. Slower but functional.
+- **Redis down:** Fall back to MySQL `sessions` and carts tables. Slower but functional.
 - **MongoDB down:** Product attributes served from a local cache or degraded view (core data from MySQL only). Behavior events queued in-memory and flushed on recovery.
 - **Neo4j down:** Recommendation queries fall back to a SQL-based co-purchase query (slower but correct). The rest of the platform is unaffected.
 
@@ -808,7 +808,7 @@ All queries complete well within the 2-second threshold.
 |-------|------|-----------------|-------------|-----------|
 | 1 | 2026-02-02 | Overall Architecture | Decided on a hybrid database approach (MySQL + MongoDB + Redis + Neo4j) instead of a single-database solution. | The e-commerce narrative involves structured transactions (orders), flexible schemas (product attributes), high-frequency ephemeral data (sessions), and relationship traversals (recommendations). No single database excels at all four. |
 | 2 | 2026-02-07 | Product Attributes Storage | Moved category-specific attributes from a relational EAV (Entity-Attribute-Value) model to MongoDB document storage. | The EAV model required expensive pivot queries for every product detail page. MongoDB's flexible documents store nested attributes natively, eliminating the need for dynamic column pivoting. |
-| 3 | 2026-02-12 | Session & Cart Management | Migrated session/cart storage from a MySQL `sessions` table to Redis with MongoDB backup. | Cross-device session restoration requires sub-millisecond reads. MySQL added 5–15ms of latency per session lookup under load. Redis delivers < 1ms. MongoDB serves as a durable fallback. |
+| 3 | 2026-02-12 | Session & Cart Management | Implemented Redis active-session cache backed by a durable MySQL `sessions` table. | Cross-device session restoration requires sub-millisecond reads. Redis delivers < 1ms for active lookups, while MySQL preserves session lineage and fallback recovery when cache entries expire or Redis is unavailable. |
 | 4 | 2026-02-18 | Order Items Denormalization | Added `product_name` and `unit_price` snapshot columns to `order_items`, denormalizing from the normalized design. | Order history queries (Q8) were the most frequent read operation but required a JOIN to `products`. Denormalization eliminated this JOIN and ensures historical accuracy (prices change over time). Read/write trade-off is favorable since orders are created once but read many times. |
 | 5 | 2026-02-21 | User Behavior Tracking | Changed from appending behavioral events to a MySQL `events` table to using MongoDB's `user_events` collection with TTL index. | Behavioral events are semi-structured (different fields per event type), high-volume (500K+), and write-heavy. MySQL's rigid schema required ALTER TABLE for each new event field. MongoDB handles schema variability natively and TTL indexes automate data lifecycle. |
 | 6 | 2026-02-24 | Query Performance — Index Strategy | Added compound indexes on `user_events { user_id, timestamp }`, `products { category_id }`, and `carts { is_active, converted_to_order }`. | Initial performance testing showed Q2 (recently viewed) taking > 3 seconds without the compound index. Q11 (cart abandonment) was doing a full table scan. After adding targeted indexes, all queries fell below the 2-second threshold. |
