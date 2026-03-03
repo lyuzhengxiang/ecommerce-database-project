@@ -6,7 +6,7 @@ Runs all 13 queries against MySQL and MongoDB, measures performance,
 and prints a summary report.
 
 Prerequisites:
-  - Docker running with containers 'ecommerce_mysql' and 'ecommerce_mongo'
+  - Docker running with containers 'ecommerce_mysql', 'ecommerce_mongo', and 'ecommerce_redis'
   - Data already imported (see scripts/setup_and_import.sh)
 
 Usage:
@@ -24,6 +24,9 @@ MYSQL_CMD = [
 MONGO_CMD = [
     "docker", "exec", "ecommerce_mongo",
     "mongosh", "ecommerce", "--quiet", "--eval"
+]
+REDIS_CMD = [
+    "docker", "exec", "ecommerce_redis", "redis-cli"
 ]
 
 THRESHOLD_MS = 2000
@@ -327,11 +330,40 @@ def run_session_health_check():
         print("  No cross-device session records found.")
 
 
+def run_redis_session_check():
+    total = subprocess.run(
+        REDIS_CMD + ["DBSIZE"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    sample = subprocess.run(
+        REDIS_CMD + ["--raw", "GET", "session:user:1"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    print(f"\n{'='*72}")
+    print("  Redis session cache check")
+    print(f"{'='*72}")
+    if total.returncode != 0:
+        print("  Failed to read Redis cache status.")
+        return
+
+    print(f"  Cached session keys: {total.stdout.strip()}")
+    sample_value = sample.stdout.strip() if sample.returncode == 0 else ""
+    if sample_value:
+        print(f"  session:user:1 -> {sample_value[:120]}{'...' if len(sample_value) > 120 else ''}")
+    else:
+        print("  session:user:1 not found in cache.")
+
+
 # ========== Main ==========
 
 def check_containers():
     """Verify Docker containers are running."""
-    for name in ["ecommerce_mysql", "ecommerce_mongo"]:
+    for name in ["ecommerce_mysql", "ecommerce_mongo", "ecommerce_redis"]:
         r = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", name],
             capture_output=True, text=True
@@ -340,7 +372,7 @@ def check_containers():
             print(f"ERROR: Container '{name}' is not running.")
             print(f"  Start it with:  scripts/setup_and_import.sh")
             sys.exit(1)
-    print("Docker containers verified: ecommerce_mysql, ecommerce_mongo")
+    print("Docker containers verified: ecommerce_mysql, ecommerce_mongo, ecommerce_redis")
 
 
 def main():
@@ -404,6 +436,7 @@ def main():
             print(f"    - {s['label']}: {s['ms']}ms")
 
     run_session_health_check()
+    run_redis_session_check()
     print()
 
 
