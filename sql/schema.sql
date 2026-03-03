@@ -1,8 +1,5 @@
--- ============================================================
--- E-Commerce Platform — Relational Database Schema (MySQL 8.0+)
--- ============================================================
 
--- ------- Users & Addresses -------
+-- Users & Addresses 
 
 CREATE TABLE users (
     user_id       INT AUTO_INCREMENT PRIMARY KEY,
@@ -29,7 +26,7 @@ CREATE TABLE addresses (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- ------- Product Catalog (core relational data) -------
+--  Product Catalog (core relational data) 
 
 CREATE TABLE categories (
     category_id        INT AUTO_INCREMENT PRIMARY KEY,
@@ -62,7 +59,28 @@ CREATE TABLE product_images (
     FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- ------- Shopping Cart -------
+--  Session Management (cross-device login)
+
+CREATE TABLE sessions (
+    session_id              VARCHAR(64) PRIMARY KEY,
+    user_id                 INT NOT NULL,
+    device_type             VARCHAR(50) CHECK (device_type IN ('tablet', 'laptop', 'mobile', 'desktop')),
+    status                  VARCHAR(20) NOT NULL
+                                CHECK (status IN ('active', 'expired', 'revoked')),
+    restored_from_session_id VARCHAR(64) NULL,
+    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_active_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at              TIMESTAMP NOT NULL,
+    ended_at                TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (restored_from_session_id) REFERENCES sessions(session_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_sessions_user_status ON sessions(user_id, status);
+CREATE INDEX idx_sessions_last_active ON sessions(last_active_at);
+CREATE INDEX idx_sessions_restore     ON sessions(restored_from_session_id);
+
+--  Shopping Cart 
 
 CREATE TABLE carts (
     cart_id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -74,7 +92,8 @@ CREATE TABLE carts (
     is_active          BOOLEAN DEFAULT TRUE,
     converted_to_order BOOLEAN DEFAULT FALSE,
     converted_at       TIMESTAMP NULL,
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 ) ENGINE=InnoDB;
 
 CREATE INDEX idx_carts_user   ON carts(user_id);
@@ -90,7 +109,7 @@ CREATE TABLE cart_items (
     FOREIGN KEY (product_id) REFERENCES products(product_id)
 ) ENGINE=InnoDB;
 
--- ------- Orders -------
+--  Orders 
 
 CREATE TABLE orders (
     order_id               INT AUTO_INCREMENT PRIMARY KEY,
@@ -117,8 +136,8 @@ CREATE TABLE order_items (
     order_item_id INT AUTO_INCREMENT PRIMARY KEY,
     order_id      INT NOT NULL,
     product_id    INT,
-    product_name  VARCHAR(255),   -- denormalized snapshot
-    unit_price    DECIMAL(10, 2), -- price at time of purchase
+    product_name  VARCHAR(255),  
+    unit_price    DECIMAL(10, 2), 
     quantity      INT NOT NULL CHECK (quantity > 0),
     subtotal      DECIMAL(10, 2),
     FOREIGN KEY (order_id)   REFERENCES orders(order_id) ON DELETE CASCADE,
@@ -128,7 +147,7 @@ CREATE TABLE order_items (
 CREATE INDEX idx_order_items_order   ON order_items(order_id);
 CREATE INDEX idx_order_items_product ON order_items(product_id);
 
--- ------- Payments -------
+--  Payments 
 
 CREATE TABLE payments (
     payment_id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -146,7 +165,7 @@ CREATE TABLE payments (
 
 CREATE INDEX idx_payments_order ON payments(order_id);
 
--- ------- Returns & Refunds -------
+--  Returns & Refunds 
 
 CREATE TABLE returns (
     return_id   INT AUTO_INCREMENT PRIMARY KEY,

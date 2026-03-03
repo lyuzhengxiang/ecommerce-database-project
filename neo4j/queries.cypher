@@ -1,16 +1,5 @@
-// ============================================================
-// Fetching Data — Neo4j Cypher Queries
-// ============================================================
 
-// ---------------------------------------------------------------
-// Q12: Top 3 products most frequently purchased together
-//      with "headphones"
-// ---------------------------------------------------------------
-
-// Approach: find users who purchased a product in the "electronics"
-// category named like headphones, then find other products those
-// same users also purchased, and rank by co-occurrence count.
-
+// Q12
 MATCH (headphone:Product)-[:BELONGS_TO]->(:Category {name: "electronics"})
 WHERE headphone.name CONTAINS "Headphone"
 MATCH (buyer:User)-[:PURCHASED]->(headphone)

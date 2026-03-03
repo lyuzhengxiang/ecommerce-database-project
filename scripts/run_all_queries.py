@@ -300,6 +300,33 @@ def run_mongo_query(label, js):
     return {"label": label, "db": "MongoDB", "ms": round(elapsed_ms, 1)}
 
 
+def run_session_health_check():
+    """Quick verification that cross-device sessions exist in dataset."""
+    sql = """
+        SELECT s.user_id,
+               COUNT(*) AS session_count,
+               COUNT(DISTINCT s.device_type) AS device_count,
+               SUM(CASE WHEN s.restored_from_session_id IS NOT NULL THEN 1 ELSE 0 END) AS restored_links
+        FROM sessions s
+        GROUP BY s.user_id
+        HAVING COUNT(DISTINCT s.device_type) >= 2
+        ORDER BY restored_links DESC, session_count DESC
+        LIMIT 5;
+    """
+    result = subprocess.run(MYSQL_CMD + [sql], capture_output=True, text=True)
+    output = result.stdout.strip()
+    lines = output.split('\n') if output else []
+
+    print(f"\n{'='*72}")
+    print("  Session health check — cross-device users")
+    print(f"{'='*72}")
+    if lines:
+        for line in lines[:8]:
+            print(f"  {line}")
+    else:
+        print("  No cross-device session records found.")
+
+
 # ========== Main ==========
 
 def check_containers():
@@ -375,6 +402,8 @@ def main():
         print(f"\n  Slow queries that need optimization:")
         for s in slow:
             print(f"    - {s['label']}: {s['ms']}ms")
+
+    run_session_health_check()
     print()
 
 

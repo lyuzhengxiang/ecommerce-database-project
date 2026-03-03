@@ -1,11 +1,5 @@
--- ============================================================
--- Fetching Data — SQL Queries (MySQL 8.0+)
--- ============================================================
 
--- ---------------------------------------------------------------
--- Q1: All products in "fashion" category with attributes
---     (SQL fetches core data; pair with MongoDB query for attributes)
--- ---------------------------------------------------------------
+-- Q1 SQL fetches data and MongoDB filters by attributes
 SELECT p.product_id,
        p.product_name,
        p.base_price,
@@ -15,10 +9,7 @@ FROM   products p
 JOIN   categories c ON p.category_id = c.category_id
 WHERE  c.category_name = 'fashion';
 
-
--- ---------------------------------------------------------------
--- Q3: Items with low stock (< 5)
--- ---------------------------------------------------------------
+-- Q3
 SELECT p.product_id,
        p.product_name,
        c.category_name,
@@ -29,22 +20,15 @@ WHERE  p.stock_quantity < 5
 ORDER  BY p.stock_quantity ASC;
 
 
--- ---------------------------------------------------------------
--- Q4: Fashion products available in blue OR large size
---     (SQL provides product IDs; MongoDB filters by attribute)
--- ---------------------------------------------------------------
+-- Q4, we use SQL to get product IDs and then filter with MongoDB
 SELECT p.product_id,
        p.product_name,
        p.base_price
 FROM   products p
 JOIN   categories c ON p.category_id = c.category_id
 WHERE  c.category_name = 'fashion';
--- Then filter in MongoDB: see mongodb/queries.js Q4
 
-
--- ---------------------------------------------------------------
--- Q7: Cart info — device type, item count, total amount
--- ---------------------------------------------------------------
+-- Q7
 SELECT c.cart_id,
        c.user_id,
        c.device_type,
@@ -58,10 +42,7 @@ JOIN   products p    ON ci.product_id = p.product_id
 GROUP  BY c.cart_id, c.user_id, c.device_type, c.created_at, c.is_active
 ORDER  BY c.created_at DESC;
 
-
--- ---------------------------------------------------------------
--- Q8: All orders placed by Sarah with full details
--- ---------------------------------------------------------------
+-- Q8
 SELECT o.order_id,
        o.order_date,
        o.status            AS order_status,
@@ -83,10 +64,7 @@ JOIN   users u        ON o.user_id   = u.user_id
 WHERE  u.username = 'sarah'
 ORDER  BY o.order_date DESC, oi.order_item_id;
 
-
--- ---------------------------------------------------------------
--- Q9: All returned items with refund status
--- ---------------------------------------------------------------
+-- Q9
 SELECT r.return_id,
        r.return_date,
        r.status            AS return_status,
@@ -104,10 +82,7 @@ JOIN   users u         ON r.user_id    = u.user_id
 WHERE  u.username = 'sarah'
 ORDER  BY r.return_date DESC;
 
-
--- ---------------------------------------------------------------
--- Q10: Average days between purchases for Sarah
--- ---------------------------------------------------------------
+-- Q10
 WITH sarah_orders AS (
     SELECT o.order_date,
            LAG(o.order_date) OVER (ORDER BY o.order_date) AS prev_order_date
@@ -121,10 +96,7 @@ SELECT ROUND(AVG(DATEDIFF(order_date, prev_order_date)), 1)
 FROM   sarah_orders
 WHERE  prev_order_date IS NOT NULL;
 
-
--- ---------------------------------------------------------------
--- Q11: Percentage of carts NOT converted to orders (past 30 days)
--- ---------------------------------------------------------------
+-- Q11
 SELECT ROUND(
     100.0 * SUM(CASE WHEN converted_to_order = FALSE THEN 1 ELSE 0 END)
           / NULLIF(COUNT(*), 0),
@@ -133,10 +105,7 @@ SELECT ROUND(
 FROM carts
 WHERE created_at >= NOW() - INTERVAL 30 DAY;
 
-
--- ---------------------------------------------------------------
--- Q13: For each user — days since last purchase & total order count
--- ---------------------------------------------------------------
+-- Q13
 SELECT u.user_id,
        u.username,
        COUNT(o.order_id)                              AS total_orders,

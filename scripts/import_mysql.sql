@@ -18,6 +18,12 @@ LOAD DATA LOCAL INFILE '/tmp/data/products.csv'
 INTO TABLE products FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 ROWS
 (product_id, category_id, product_name, description, base_price, stock_quantity, created_at, updated_at);
 
+LOAD DATA LOCAL INFILE '/tmp/data/sessions.csv'
+INTO TABLE sessions FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 ROWS
+(session_id, user_id, device_type, status, @restored_from, created_at, last_active_at, expires_at, @ended_at)
+SET restored_from_session_id = NULLIF(@restored_from, ''),
+    ended_at = NULLIF(@ended_at, '');
+
 LOAD DATA LOCAL INFILE '/tmp/data/carts.csv'
 INTO TABLE carts FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 ROWS
 (cart_id, user_id, session_id, device_type, created_at, updated_at, @active, @converted, @converted_at)
@@ -56,6 +62,7 @@ SELECT 'users' AS tbl, COUNT(*) AS cnt FROM users
 UNION ALL SELECT 'products', COUNT(*) FROM products
 UNION ALL SELECT 'orders', COUNT(*) FROM orders
 UNION ALL SELECT 'order_items', COUNT(*) FROM order_items
+UNION ALL SELECT 'sessions', COUNT(*) FROM sessions
 UNION ALL SELECT 'carts', COUNT(*) FROM carts
 UNION ALL SELECT 'cart_items', COUNT(*) FROM cart_items
 UNION ALL SELECT 'returns', COUNT(*) FROM returns

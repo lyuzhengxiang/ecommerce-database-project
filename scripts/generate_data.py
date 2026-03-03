@@ -84,6 +84,10 @@ SEARCH_TERMS = [
 ]
 
 
+def fmt_dt(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def write_csv(filename, rows, fieldnames):
     path = OUTPUT_DIR / filename
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -198,23 +202,72 @@ def gen_product_catalog(products):
     return catalog
 
 
-def gen_carts(users, products):
+def gen_sessions(users):
+    sessions = []
+    session_refs = {u["user_id"]: [] for u in users}
+
+    for user in users:
+        num_sessions = random.choices([1, 2, 3, 4], weights=[0.25, 0.45, 0.25, 0.05])[0]
+        first_login = fake.date_time_between(start_date="-90d", end_date="-3d")
+        previous_session_id = ""
+        previous_device = ""
+
+        for i in range(num_sessions):
+            available_devices = [d for d in DEVICE_TYPES if d != previous_device] or DEVICE_TYPES
+            device_type = random.choice(available_devices)
+            created_at = first_login + timedelta(hours=random.randint(i * 3 + 1, i * 24 + 12))
+            last_active_at = created_at + timedelta(minutes=random.randint(15, 16 * 60))
+            expires_at = last_active_at + timedelta(hours=24)
+            is_active = i == num_sessions - 1 and random.random() < 0.75
+            status = "active" if is_active else random.choice(["expired", "revoked"])
+            ended_at = "" if is_active else fmt_dt(last_active_at + timedelta(minutes=random.randint(1, 90)))
+            session_id = f"sess_{fake.uuid4().replace('-', '')[:24]}"
+
+            restored_from = ""
+            if previous_session_id and random.random() < 0.65:
+                restored_from = previous_session_id
+
+            sessions.append({
+                "session_id": session_id,
+                "user_id": user["user_id"],
+                "device_type": device_type,
+                "status": status,
+                "restored_from_session_id": restored_from,
+                "created_at": fmt_dt(created_at),
+                "last_active_at": fmt_dt(last_active_at),
+                "expires_at": fmt_dt(expires_at),
+                "ended_at": ended_at,
+            })
+
+            session_refs[user["user_id"]].append({
+                "session_id": session_id,
+                "device_type": device_type,
+            })
+            previous_session_id = session_id
+            previous_device = device_type
+
+    return sessions, session_refs
+
+
+def gen_carts(users, products, session_refs):
     carts, cart_items = [], []
     ci_id = 1
     for cart_id in range(1, NUM_CARTS + 1):
         user = random.choice(users)
+        user_sessions = session_refs[user["user_id"]]
+        selected_session = random.choice(user_sessions)
         created = fake.date_time_between(start_date="-60d", end_date="now")
         converted = random.random() < 0.55
         carts.append({
             "cart_id": cart_id,
             "user_id": user["user_id"],
-            "session_id": fake.uuid4(),
-            "device_type": random.choice(DEVICE_TYPES),
-            "created_at": str(created),
-            "updated_at": str(created + timedelta(minutes=random.randint(1, 120))),
+            "session_id": selected_session["session_id"],
+            "device_type": selected_session["device_type"],
+            "created_at": fmt_dt(created),
+            "updated_at": fmt_dt(created + timedelta(minutes=random.randint(1, 120))),
             "is_active": not converted,
             "converted_to_order": converted,
-            "converted_at": str(created + timedelta(minutes=random.randint(5, 180))) if converted else "",
+            "converted_at": fmt_dt(created + timedelta(minutes=random.randint(5, 180))) if converted else "",
         })
         for _ in range(random.randint(*CART_ITEMS_PER_CART)):
             prod = random.choice(products)
@@ -223,7 +276,7 @@ def gen_carts(users, products):
                 "cart_id": cart_id,
                 "product_id": prod["product_id"],
                 "quantity": random.randint(1, 3),
-                "added_at": str(created + timedelta(minutes=random.randint(0, 30))),
+                "added_at": fmt_dt(created + timedelta(minutes=random.randint(0, 30))),
             })
             ci_id += 1
     return carts, cart_items
@@ -341,10 +394,11 @@ def gen_returns(orders, order_items_all):
     return returns_list, return_items
 
 
-def gen_user_events(users, products):
+def gen_user_events(users, products, session_refs):
     events = []
     for _ in range(NUM_USER_EVENTS):
         user = random.choice(users)
+        selected_session = random.choice(session_refs[user["user_id"]])
         event_type = random.choices(EVENT_TYPES, weights=[50, 15, 20, 10, 5])[0]
         ts = fake.date_time_between(start_date="-6m", end_date="now")
         prod = random.choice(products)
@@ -364,8 +418,8 @@ def gen_user_events(users, products):
             "user_id": user["user_id"],
             "event_type": event_type,
             "timestamp": ts.isoformat(),
-            "session_id": fake.uuid4(),
-            "device_type": random.choice(DEVICE_TYPES),
+            "session_id": selected_session["session_id"],
+            "device_type": selected_session["device_type"],
             "data": data,
         })
     return events
@@ -436,26 +490,30 @@ def main():
     catalog = gen_product_catalog(products)
     write_json("product_catalog.json", catalog)
 
-    print("[5/8] Carts")
-    carts, cart_items = gen_carts(users, products)
+    print("[5/9] Sessions (cross-device login)")
+    sessions, session_refs = gen_sessions(users)
+    write_csv("sessions.csv", sessions, sessions[0].keys())
+
+    print("[6/9] Carts")
+    carts, cart_items = gen_carts(users, products, session_refs)
     write_csv("carts.csv", carts, carts[0].keys())
     write_csv("cart_items.csv", cart_items, cart_items[0].keys())
 
-    print("[6/8] Orders, Order Items, Payments")
+    print("[7/9] Orders, Order Items, Payments")
     orders, order_items_all, payments = gen_orders(users, products, addresses)
     write_csv("orders.csv", orders, orders[0].keys())
     write_csv("order_items.csv", order_items_all, order_items_all[0].keys())
     write_csv("payments.csv", payments, payments[0].keys())
 
-    print("[7/8] Returns")
+    print("[8/9] Returns")
     returns_list, return_items = gen_returns(orders, order_items_all)
     if returns_list:
         write_csv("returns.csv", returns_list, returns_list[0].keys())
     if return_items:
         write_csv("return_items.csv", return_items, return_items[0].keys())
 
-    print("[8/8] User Events (MongoDB)")
-    events = gen_user_events(users, products)
+    print("[9/9] User Events (MongoDB)")
+    events = gen_user_events(users, products, session_refs)
     write_json("user_events.json", events)
 
     print("\n[Neo4j] Generating Cypher import...")
@@ -471,6 +529,7 @@ def main():
     print(f"  Products:     {len(products):>10,}")
     print(f"  Orders:       {len(orders):>10,}")
     print(f"  Order Items:  {len(order_items_all):>10,}")
+    print(f"  Sessions:     {len(sessions):>10,}")
     print(f"  Carts:        {len(carts):>10,}")
     print(f"  Cart Items:   {len(cart_items):>10,}")
     print(f"  Returns:      {len(returns_list):>10,}")
