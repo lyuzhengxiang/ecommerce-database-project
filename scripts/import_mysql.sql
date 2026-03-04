@@ -54,7 +54,8 @@ INTO TABLE returns FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY 
 
 LOAD DATA LOCAL INFILE '/tmp/data/return_items.csv'
 INTO TABLE return_items FIELDS TERMINATED BY ',' ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 ROWS
-(return_item_id, return_id, order_item_id, product_id, quantity, refund_amount, restocking_fee, refund_status);
+(return_item_id, return_id, order_item_id, product_id, quantity, refund_amount, restocking_fee, @refund_status)
+SET refund_status = TRIM(TRAILING '\r' FROM @refund_status);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

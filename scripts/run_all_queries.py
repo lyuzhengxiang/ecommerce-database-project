@@ -2,11 +2,12 @@
 """
 E-Commerce Platform — Full Reproduction Script
 ================================================
-Runs all 13 queries against MySQL and MongoDB, measures performance,
+Runs all 13 queries across MySQL, MongoDB, and Neo4j, measures performance,
 and prints a summary report.
 
 Prerequisites:
-  - Docker running with containers 'ecommerce_mysql', 'ecommerce_mongo', and 'ecommerce_redis'
+  - Docker running with containers 'ecommerce_mysql', 'ecommerce_mongo',
+    'ecommerce_redis', and 'ecommerce_neo4j'
   - Data already imported (see scripts/setup_and_import.sh)
 
 Usage:
@@ -27,6 +28,10 @@ MONGO_CMD = [
 ]
 REDIS_CMD = [
     "docker", "exec", "ecommerce_redis", "redis-cli"
+]
+NEO4J_CMD = [
+    "docker", "exec", "ecommerce_neo4j",
+    "cypher-shell", "-u", "neo4j", "-p", "password", "--format", "plain", "-a", "bolt://localhost:7687"
 ]
 
 THRESHOLD_MS = 2000
@@ -126,24 +131,6 @@ SQL_QUERIES = {
             SUM(CASE WHEN converted_to_order = FALSE THEN 1 ELSE 0 END) AS abandoned
             FROM carts
             WHERE created_at >= NOW() - INTERVAL 30 DAY;
-        """
-    },
-    "Q12": {
-        "label": "Q12: Top 3 co-purchased with electronics (SQL)",
-        "sql": """
-            SELECT other_p.product_name, c2.category_name, COUNT(*) AS co_purchase_count
-            FROM order_items oi1
-            JOIN products p1 ON oi1.product_id = p1.product_id
-            JOIN categories c1 ON p1.category_id = c1.category_id
-            JOIN order_items oi2 ON oi1.order_id = oi2.order_id
-                AND oi1.order_item_id != oi2.order_item_id
-            JOIN products other_p ON oi2.product_id = other_p.product_id
-            JOIN categories c2 ON other_p.category_id = c2.category_id
-            WHERE c1.category_name = 'electronics'
-              AND c2.category_name != 'electronics'
-            GROUP BY other_p.product_id, other_p.product_name, c2.category_name
-            ORDER BY co_purchase_count DESC
-            LIMIT 3;
         """
     },
     "Q13": {
@@ -261,6 +248,27 @@ MONGO_QUERIES = {
     },
 }
 
+NEO4J_QUERIES = {
+    "Q12": {
+        "label": "Q12: Top 3 products purchased with headphones (Neo4j)",
+        "cypher": """
+            MATCH (p:Product)-[:BELONGS_TO]->(:Category {name: "electronics"})
+            WITH collect(p) AS electronics,
+                 [x IN collect(p) WHERE x.name CONTAINS "Headphone"] AS headphones
+            WITH CASE WHEN size(headphones) > 0 THEN headphones ELSE electronics END AS targets
+            UNWIND targets AS headphone
+            MATCH (buyer:User)-[:PURCHASED]->(headphone)
+            MATCH (buyer)-[:PURCHASED]->(other:Product)
+            WHERE other <> headphone
+            RETURN other.product_id AS product_id,
+                   other.name AS product_name,
+                   COUNT(buyer) AS co_purchase_count
+            ORDER BY co_purchase_count DESC
+            LIMIT 3;
+        """
+    }
+}
+
 
 # ========== Runners ==========
 
@@ -301,6 +309,37 @@ def run_mongo_query(label, js):
         print(f"  ... (output truncated)")
 
     return {"label": label, "db": "MongoDB", "ms": round(elapsed_ms, 1)}
+
+
+def run_neo4j_query(label, cypher):
+    start = time.perf_counter()
+    result = subprocess.run(NEO4J_CMD + [cypher], capture_output=True, text=True)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    if result.returncode != 0:
+        print(f"\n{'='*72}")
+        print(f"  {label}")
+        print(f"  Database: Neo4j  |  Time: {elapsed_ms:.0f} ms")
+        print(f"{'='*72}")
+        print("  ERROR executing Neo4j query:")
+        err = result.stderr.strip() or "(no stderr output)"
+        for line in err.split('\n')[:10]:
+            print(f"  {line}")
+        return {"label": label, "db": "Neo4j", "rows": 0, "ms": round(elapsed_ms, 1)}
+
+    output = result.stdout.strip()
+    lines = output.split('\n') if output else []
+    row_count = max(len(lines) - 1, 0)
+
+    print(f"\n{'='*72}")
+    print(f"  {label}")
+    print(f"  Database: Neo4j  |  Rows: {row_count}  |  Time: {elapsed_ms:.0f} ms")
+    print(f"{'='*72}")
+    for line in lines[:10]:
+        print(f"  {line}")
+    if len(lines) > 10:
+        print(f"  ... ({row_count} total rows)")
+
+    return {"label": label, "db": "Neo4j", "rows": row_count, "ms": round(elapsed_ms, 1)}
 
 
 def run_session_health_check():
@@ -363,7 +402,7 @@ def run_redis_session_check():
 
 def check_containers():
     """Verify Docker containers are running."""
-    for name in ["ecommerce_mysql", "ecommerce_mongo", "ecommerce_redis"]:
+    for name in ["ecommerce_mysql", "ecommerce_mongo", "ecommerce_redis", "ecommerce_neo4j"]:
         r = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", name],
             capture_output=True, text=True
@@ -372,7 +411,7 @@ def check_containers():
             print(f"ERROR: Container '{name}' is not running.")
             print(f"  Start it with:  scripts/setup_and_import.sh")
             sys.exit(1)
-    print("Docker containers verified: ecommerce_mysql, ecommerce_mongo, ecommerce_redis")
+    print("Docker containers verified: ecommerce_mysql, ecommerce_mongo, ecommerce_redis, ecommerce_neo4j")
 
 
 def main():
@@ -397,7 +436,7 @@ def main():
         ("sql",   "Q9"),
         ("sql",   "Q10"),
         ("sql",   "Q11"),
-        ("sql",   "Q12"),
+        ("neo4j", "Q12"),
         ("sql",   "Q13"),
     ]
 
@@ -405,9 +444,12 @@ def main():
         if db_type == "sql":
             q = SQL_QUERIES[key]
             results.append(run_mysql_query(q["label"], q["sql"]))
-        else:
+        elif db_type == "mongo":
             q = MONGO_QUERIES[key]
             results.append(run_mongo_query(q["label"], q["js"]))
+        else:
+            q = NEO4J_QUERIES[key]
+            results.append(run_neo4j_query(q["label"], q["cypher"]))
 
     # Performance summary
     print("\n\n" + "=" * 72)

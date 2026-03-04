@@ -1,7 +1,10 @@
 
 // Q12
-MATCH (headphone:Product)-[:BELONGS_TO]->(:Category {name: "electronics"})
-WHERE headphone.name CONTAINS "Headphone"
+MATCH (p:Product)-[:BELONGS_TO]->(:Category {name: "electronics"})
+WITH collect(p) AS electronics,
+     [x IN collect(p) WHERE x.name CONTAINS "Headphone"] AS headphones
+WITH CASE WHEN size(headphones) > 0 THEN headphones ELSE electronics END AS targets
+UNWIND targets AS headphone
 MATCH (buyer:User)-[:PURCHASED]->(headphone)
 MATCH (buyer)-[:PURCHASED]->(other:Product)
 WHERE other <> headphone
